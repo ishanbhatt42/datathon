@@ -1,0 +1,58 @@
+---
+title: "spatial_work"
+author: "Ishan Bhatt"
+date: "3/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(janitor)
+
+property <- read_csv("clean-data/property_clean.csv")
+
+merged <- read_csv("raw-data/zoned_data.csv")
+
+appeals <- read_csv("raw-data/zoning_appeals.csv") %>%
+  clean_names()
+
+```
+
+```{r}
+
+property %>%
+  filter(AssessedValue < 2421650) %>%
+  filter(YearOfAssessment %in% 2018:2021) %>%
+  ggplot(aes(x = AssessedValue, color = as.factor(YearOfAssessment))) + 
+  geom_density() +
+  theme_light() +
+  labs(
+    title = "Demand Estimation - Distribution of Property Value",
+    subtitle = "Extreme Upper Outliers Excluded",
+    color = "Year",
+    x = "Value")
+
+```
+
+
+```{r}
+
+clean_appeals <- appeals %>%
+  filter(str_detect(zoning_use_classification, c("residential", "Residential"))) %>%
+  separate(location, c("address", "coord"), sep = "[(]") 
+
+clean_appeals$coord <-  str_remove(clean_appeals$coord, "[)]") 
+
+clean_appeals <- clean_appeals %>%
+  separate(coord, c("lat", "long"), sep = "[,]", remove = F)
+
+clean_appeals$lat <- as.numeric(clean_appeals$lat)
+clean_appeals$long <- as.numeric(clean_appeals$long)
+
+write.csv(clean_appeals, "clean-data/zone_these_appeals.csv")
+```
+
+
+
+

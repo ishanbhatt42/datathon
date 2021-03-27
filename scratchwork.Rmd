@@ -10,7 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(ggmap)
 library(ggthemes)
-
+library(sp)
+library(sf)
 
 ```
 
@@ -20,6 +21,7 @@ data <- read_csv("raw-data/property-2016-2021.csv")
 
 ```
 
+## Residential Categorizing
 
 ```{r}
 
@@ -85,24 +87,38 @@ housing_data$coord <- str_remove(housing_data$coord, "[)]")
 
 housing_data <- housing_data %>%
   separate(coord, c("lat", "long"), sep = "[,]", remove = F)
-
 housing_data$AssessedValue <- as.numeric(housing_data$AssessedValue)
-```
 
 
-```{r}
+housing_data$lat <- as.numeric(housing_data$lat)
+housing_data$long <- as.numeric(housing_data$long)
 
-## Density and quartiles for housing value
+housing_data <- housing_data %>%
+  filter(!is.na(lat)) %>%
+  mutate(price_increase = AssessedValue - PreviousAssessedValue)
 
-housing_data %>%
-  filter(residential == 1) %>%
-  ggplot(aes(x= AssessedValue)) + geom_density()
+spatial_housing <- housing_data
+coordinates(spatial_housing) <- cbind(spatial_housing$long, spatial_housing$lat)
 
 housing_data <- within(housing_data, value_quartile <- as.integer(cut(AssessedValue, quantile(AssessedValue, probs=0:4/4), include.lowest=TRUE)))
 
 write.csv(housing_data, "clean-data/property_clean.csv")
+
 ```
 
+## Small Data
+
+```{r}
+
+small_data <- housing_data %>%
+  filter(residential == 1) %>%
+  select(lat, long, GISID, StateClassCode, AssessedValue, PreviousAssessedValue)
+
+write.csv(small_data, "clean-data/small_data.csv")
+
+```
+
+## Pricing Statistics
 
 ```{r}
 
@@ -131,4 +147,27 @@ ggplot(price_stats, aes(x = YearOfAssessment, y = value, color = as.factor(housi
   
 
 ```
+
+## Checking Duplicates
+
+```{r}
+
+dupli <- housing_data %>%
+  distinct(address, YearOfAssessment, BldgNum, Unit)
+
+# Units was the key swing
+
+```
+
+
+## Development
+
+```{r}
+
+
+new <- st_read("raw-data/boundaries.shp", package = "sp")
+
+
+```
+
 
