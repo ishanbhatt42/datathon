@@ -1,0 +1,132 @@
+---
+title: "Zone Analysis"
+author: "Jay Garg"
+date: "3/27/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(sf)
+library(ggplot2)
+library(tidyverse)
+library(data.table)
+```
+
+```{r readData, echo=FALSE}
+
+properties <- fread('~/Desktop/Datathon/property_clean.csv') %>%
+  rowwise() %>%
+  mutate(`Full Address` = unlist(strsplit(address, '\n'))[1])
+
+addresses <- fread('~/Desktop/Datathon/Master_Addresses_List.csv') %>% select(
+  `Full Address`, `Building ID`
+)
+
+buildings <- st_read('~/Desktop/Datathon/GEO/BASEMAP_Buildings.shp') %>% select(geometry, BldgID)
+
+merged <- properties %>% merge(addresses, by = 'Full Address') %>% merge(buildings, by.x = 'Building ID', by.y = 'BldgID')
+merged <- st_as_sf(merged)
+buildings <- st_read('~/Desktop/Datathon/GEO/BASEMAP_Buildings.shp')
+cambridge <- st_read('~/Desktop/Datathon/GEO/BOUNDARY_CityBoundary.shp')$geometry
+rail <- st_read('~/Desktop/Datathon/GEO/TRANS_Rail.shp')
+bus <- st_read('~/Desktop/Datathon/GEO/TRANS_BusShelters.shp')
+land <- st_read('~/Desktop/Datathon/GEO/CDD_LandUse.shp')
+zones <- st_read('~/Desktop/Datathon/GEO/CDD_ZoningDistricts.shp')
+overlay_zones <- st_read('~/Desktop/Datathon/GEO/CDD_ZoningOverlayDistricts.shp')
+development <- st_read('~/Desktop/Datathon/GEO/development_log.shp')
+
+zoned <- read.csv('~/Desktop/Datathon/zoned_data.csv')
+
+```
+
+```{r groupZones, echo = FALSE}
+
+zones <- zones %>%
+  filter(ZONE_TYPE != 'SD')
+
+ggplot(zones) + theme_void() + 
+  geom_sf(aes(geometry = geometry, fill = ZONE_TYPE), show.legend = 'polygon') +
+  geom_sf(data=overlay_zones, aes(geometry = geometry), alpha = 0.5, fill = 'black') +
+  labs(
+    caption = 'Dark shading represents overlay zones with additional aesthetic regulations.',
+    title = 'Zoning Regulations in Cambridge, MA',
+    fill = 'Zone Type'
+  )
+
+```
+
+```{r zoneAnalysis, echo = FALSE}
+
+zone_grouped <- zoned %>% 
+  filter(residential == 1, PreviousAssessedValue != 0) %>%
+  group_by(ZONE_TYPE, inOverlayZone) %>%
+  summarize(price = median(AssessedValue, na.rm = TRUE),
+            buildingValue = median(BuildingValue, na.rm = TRUE),
+            landValue = median(LandValue, na.rm = TRUE),
+            value_change = mean((AssessedValue - PreviousAssessedValue) / PreviousAssessedValue * 100), na.rm = TRUE)
+
+zones <- zones %>% merge(zone_grouped, by = 'ZONE_TYPE')
+
+ggplot(zones) + theme_void() + 
+  geom_sf(aes(geometry = geometry, fill = log(price)), show.legend = 'polygon') +
+  labs(
+    title = 'Median Price by Zone',
+    fill = 'Log Median Residential Price'
+  ) + scale_fill_gradient(high = 'firebrick', low = 'steelblue') +
+  geom_sf(data = development, aes(geometry = geometry), size = 2, color = 'black')
+
+ggplot(zones) + theme_void() + 
+  geom_sf(aes(geometry = geometry, fill = log(landValue)), show.legend = 'polygon') +
+  labs(
+    title = 'Median Land Price by Zone',
+    fill = 'Log Median Land Price'
+  ) + scale_fill_gradient(high = 'firebrick', low = 'steelblue')
+
+test <- merged %>% head(10000)
+ggplot(test) + theme_void() +
+  geom_sf(aes(geometry = geometry, fill = log(AssessedValue)), show.legend = 'polygon')
+
+```
+
+```{r, echo = FALSE}
+
+odata <- zoned %>% mutate(
+  overlay_type = ifelse(inOverlayZone == 'BAD', 'BAD', 'NEUTRAL')
+)
+
+odata$overlay_type <- factor(odata$overlay_type, levels = c('NEUTRAL', 'BAD'))
+
+overlay_reg <- lm(AssessedValue ~ overlay_type + as.factor(ZONE_TYPE), data = odata)
+summary(overlay_reg)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
