@@ -9,6 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(janitor)
+library(readxl)
+library(broom)
+library(gt)
 
 property <- read_csv("clean-data/property_clean.csv")
 
@@ -51,6 +54,164 @@ clean_appeals$lat <- as.numeric(clean_appeals$lat)
 clean_appeals$long <- as.numeric(clean_appeals$long)
 
 write.csv(clean_appeals, "clean-data/zone_these_appeals.csv")
+
+```
+
+```{r}
+
+merged <- merged %>%
+  filter(! PreviousAssessedValue == 0) %>%
+  mutate(value_change = ((AssessedValue - PreviousAssessedValue) * 100)  / PreviousAssessedValue) %>%
+  filter(residential == 1) %>%
+  filter(! is.na(value_change)) %>%
+  filter(! is.na(inOverlayZone))
+
+```
+
+```{r}
+
+fit_1 <- lm(value_change ~ inOverlayZone, data = merged)
+fit_2 <- lm(LandValue ~ inOverlayZone, data = merged)
+fit_3 <- lm(BuildingValue ~ inOverlayZone, data = merged)
+
+```
+
+```{r}
+
+zone_categories <- read_csv("clean-data/zoned_data.csv") %>%
+  filter(! PreviousAssessedValue == 0) %>%
+  mutate(value_change = ((AssessedValue - PreviousAssessedValue) * 100)  / PreviousAssessedValue) %>%
+  filter(residential == 1) %>%
+  filter(! is.na(value_change)) %>%
+  filter(! is.na(inOverlayZone)) %>%
+  mutate(zone_types_new = case_when(
+    inOverlayZone == "BAD" ~ 'NO_DEVELOPMENT',
+    inOverlayZone == "GOOD" ~ 'YES_DEVELOPMENT',
+    TRUE ~ 'NEITHER'
+  )) %>%
+  mutate(good_zone = case_when(
+    inOverlayZone == "BAD" ~ 0,
+    inOverlayZone == "GOOD" ~ 1,
+    TRUE ~ 0
+  )) %>%
+  filter(value_change > -0.1665 & value_change < 20.9415)
+
+prop_19 <- read_excel("clean-data/fy2019_propDB.xlsx")  %>%
+  select(PID, BuildingValue, LandValue) %>%
+  filter(! BuildingValue == 0)
+
+latest <- zone_categories %>%
+  left_join(prop_19, by = c("PID")) %>%
+  filter(! is.na(BuildingValue.y)) %>%
+  mutate(change_Building = (100 * (BuildingValue.x - BuildingValue.y))/BuildingValue.y )
+
+
+fit_1 <- lm(change_Building ~  zone_types_new * high_density, data = latest)
+
+
+```
+
+## Regressions
+
+```{r}
+
+## Density of housing
+
+reg_overall_density <- lm(AssessedValue ~ high_density + as.factor(YearOfAssessment), data = zone_categories) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+reg_building_density <- lm(BuildingValue ~ high_density, data = zone_categories) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+reg_land_density <- lm(LandValue ~ high_density, data = zone_categories) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+density_regression <- reg_overall_density %>%
+  left_join(reg_building_density, by = c("term")) %>%
+  left_join(reg_land_density, by = c("term")) %>%
+  rename(c("Assessed Value" = "estimate.x", "Building Value" = "estimate.y", "Land Value" =
+             "estimate"))
+
+gt(density_regression)
+```
+
+```{r}
+
+## Zoning
+
+neutrals <- zone_categories %>%
+  filter(! zone_types_new == "NEITHER")
+
+reg_overall_zoning_density <- lm(AssessedValue ~ zone_types_new * high_density + as.factor(ZCODE), data = neutrals) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+reg_building_zoning_density <- lm(BuildingValue ~ zone_types_new * high_density + as.factor(ZCODE), data = neutrals) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+reg_land_zoning_density <- lm(LandValue ~ zone_types_new * high_density + as.factor(ZCODE), data = neutrals) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+zoning_regression <- reg_overall_zoning_density %>%
+  left_join(reg_building_zoning_density, by = c("term")) %>%
+  left_join(reg_land_zoning_density, by = c("term")) %>%
+  rename(c("Assessed Value" = "estimate.x", "Building Value" = "estimate.y", "Land Value" =
+             "estimate"))
+
+gt(zoning_regression)
+
+
+
+
+```
+
+
+### Controlling
+
+```{r}
+trees_data <- read_csv("clean-data/trees.csv") %>%
+  group_by(ZCODE) %>%
+  summarize(trees = n())
+
+
+trees_with_prices <- zone_categories %>%
+  left_join(trees_data, by = c("ZCODE")) %>%
+  mutate(new_trees = ifelse(is.na(trees), 0.0, trees))
+```
+
+
+```{r}
+
+reg_overall_zoning_density <- lm(value_change ~ high_density + new_trees, data = trees_with_prices) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+
+```
+
+
+## Development
+
+```{r}
+
+units_data <- read_csv("clean-data/zoned_development.csv")
+
+
+units_with_prices <- trees_with_prices %>%
+  left_join(units_data, by = c("ZCODE")) %>%
+  mutate(new_units = ifelse(is.na(units), 0.0, units)) %>%
+  filter(value_change > -0.1665 & value_change < 20.9415)
+
+simple <- lm(AssessedValue ~ high_density, data = units_with_prices) %>%
+  tidy() %>%
+  select(term, estimate, p.value)
+
+gt(simple)
 ```
 
 
